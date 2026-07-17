@@ -1,0 +1,6 @@
+@TryalTestForMargasoftApi_HostAddress = http://localhost:5009
+
+GET {{TryalTestForMargasoftApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

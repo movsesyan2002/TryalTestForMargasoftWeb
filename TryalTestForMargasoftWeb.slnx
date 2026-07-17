@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="TryalTestForMargasoft/TryalTestForMargasoft.csproj" />
+  <Project Path="TryalTestForMargasoftApi/TryalTestForMargasoftApi.csproj" />
+  <Project Path="TryalTestForMargsoftCore/TryalTestForMargsoftCore.csproj" Id="7b413449-ae30-4e48-a558-99dd03c1db71" />
+</Solution>
