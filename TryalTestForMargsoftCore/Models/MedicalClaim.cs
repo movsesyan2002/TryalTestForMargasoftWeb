@@ -14,6 +14,7 @@ public class MedicalClaim
     [StringLength(100)]
     public string ClaimNumber { get; set; } = string.Empty;
 
+
     public long? BatchId { get; set; }
 
 
