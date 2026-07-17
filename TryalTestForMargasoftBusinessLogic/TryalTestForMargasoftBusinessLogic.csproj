@@ -7,8 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\TryalTestForMargasoftInfrastrcture\TryalTestForMargasoftInfrastrcture.csproj" />
     <ProjectReference Include="..\TryalTestForMargasoftShared\TryalTestForMargasoftShared.csproj" />
+    <ProjectReference Include="..\TryalTestForMargsoftCore\TryalTestForMargsoftCore.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,454 @@
+using TryalTestForMargasoftBusinessLogic.Interfaces;
+using TryalTestForMargasoftShared.MedicalClaims;
+using TryalTestForMargsoftCore.Constants;
+using TryalTestForMargsoftCore.Enums;
+using TryalTestForMargsoftCore.Models;
+using TryalTestForMargsoftCore.Repositories;
+
+namespace TryalTestForMargasoftBusinessLogic.Services;
+
+public sealed class ClaimWorkflowService : IClaimWorkflowService
+{
+    private readonly IMedicalClaimRepository _medicalClaims;
+    private readonly IClaimRecommendationRepository _recommendations;
+
+    public ClaimWorkflowService(
+        IMedicalClaimRepository medicalClaims,
+        IClaimRecommendationRepository recommendations)
+    {
+        _medicalClaims = medicalClaims;
+        _recommendations = recommendations;
+    }
+
+    public async Task<MedicalClaimResponse> CreateClaimAsync(CreateMedicalClaimRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateCreateRequest(request);
+
+        var claim = new MedicalClaim
+        {
+            BatchId = request.BatchId,
+            ClaimNumber = request.ClaimNumber.Trim(),
+            HospitalId = request.HospitalId,
+            InsuranceCompanyId = request.InsuranceCompanyId,
+            PatientIdentifier = request.PatientIdentifier.Trim(),
+            PatientDateOfBirth = request.PatientDateOfBirth,
+            PolicyNumber = TrimToNull(request.PolicyNumber),
+            DateOfService = request.DateOfService,
+            DateClaimSubmitted = request.DateClaimSubmitted,
+            AmountBilled = request.AmountBilled,
+            ExpectedPaymentAmount = request.ExpectedPaymentAmount,
+            AmountPaid = request.AmountPaid,
+            Division = TrimToNull(request.Division),
+            DenialReason = TrimToNull(request.DenialReason),
+            DenialCode = TrimToNull(request.DenialCode),
+            PayerResponseDate = request.PayerResponseDate,
+            LastFollowUpDate = request.LastFollowUpDate,
+            DocumentationComplete = request.DocumentationComplete,
+            StatuteOfLimitationsDate = request.StatuteOfLimitationsDate,
+            Status = string.IsNullOrWhiteSpace(request.Status) ? MedicalClaimStatuses.New : request.Status.Trim()
+        };
+
+        claim.RecalculateFinancials();
+        claim.Priority = DeterminePriority(claim, CalculateValues(claim));
+
+        await _medicalClaims.AddAsync(claim, cancellationToken);
+
+        return await AnalyzeExistingClaimAsync(claim, cancellationToken);
+    }
+
+    public async Task<MedicalClaimResponse?> GetClaimAsync(long id, CancellationToken cancellationToken = default)
+    {
+        var claim = await _medicalClaims.GetByIdAsync(id, cancellationToken);
+        if (claim is null)
+        {
+            return null;
+        }
+
+        var latestRecommendation = await _recommendations.GetLatestForClaimAsync(id, cancellationToken);
+        return MapClaim(claim, CalculateValues(claim), latestRecommendation);
+    }
+
+    public async Task<IReadOnlyCollection<MedicalClaimResponse>> ListClaimsAsync(CancellationToken cancellationToken = default)
+    {
+        var claims = await _medicalClaims.ListAsync(cancellationToken);
+        var responses = new List<MedicalClaimResponse>(claims.Count);
+
+        foreach (var claim in claims.OrderByDescending(claim => claim.CreatedAt))
+        {
+            var latestRecommendation = await _recommendations.GetLatestForClaimAsync(claim.Id, cancellationToken);
+            responses.Add(MapClaim(claim, CalculateValues(claim), latestRecommendation));
+        }
+
+        return responses;
+    }
+
+    public async Task<MedicalClaimResponse> AnalyzeClaimAsync(long id, CancellationToken cancellationToken = default)
+    {
+        var claim = await _medicalClaims.GetByIdAsync(id, cancellationToken)
+            ?? throw new KeyNotFoundException($"Medical claim {id} was not found.");
+
+        return await AnalyzeExistingClaimAsync(claim, cancellationToken);
+    }
+
+    public async Task<ClaimRecommendationResponse> ConfirmRecommendationAsync(
+        long recommendationId,
+        string decidedBy,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(decidedBy))
+        {
+            throw new ArgumentException("Decided by is required.", nameof(decidedBy));
+        }
+
+        var recommendation = await _recommendations.GetByIdAsync(recommendationId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Claim recommendation {recommendationId} was not found.");
+
+        recommendation.Confirm(decidedBy.Trim(), DateTimeOffset.UtcNow);
+        await _recommendations.UpdateAsync(recommendation, cancellationToken);
+
+        return MapRecommendation(recommendation);
+    }
+
+    public async Task<ClaimRecommendationResponse> OverrideRecommendationAsync(
+        long recommendationId,
+        RecommendedAction finalAction,
+        string overrideReason,
+        string decidedBy,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(decidedBy))
+        {
+            throw new ArgumentException("Decided by is required.", nameof(decidedBy));
+        }
+
+        var recommendation = await _recommendations.GetByIdAsync(recommendationId, cancellationToken)
+            ?? throw new KeyNotFoundException($"Claim recommendation {recommendationId} was not found.");
+
+        recommendation.Override(finalAction, overrideReason, decidedBy.Trim(), DateTimeOffset.UtcNow);
+        await _recommendations.UpdateAsync(recommendation, cancellationToken);
+
+        return MapRecommendation(recommendation);
+    }
+
+    private async Task<MedicalClaimResponse> AnalyzeExistingClaimAsync(MedicalClaim claim, CancellationToken cancellationToken)
+    {
+        claim.RecalculateFinancials();
+
+        var calculatedValues = CalculateValues(claim);
+        claim.Priority = DeterminePriority(claim, calculatedValues);
+
+        if (claim.Status is MedicalClaimStatuses.New or MedicalClaimStatuses.InReview)
+        {
+            claim.Status = MedicalClaimStatuses.Recommended;
+        }
+
+        await _medicalClaims.UpdateAsync(claim, cancellationToken);
+
+        var recommendationResult = RecommendAction(claim, calculatedValues);
+        var recommendation = new ClaimRecommendation
+        {
+            MedicalClaimId = claim.Id,
+            MedicalClaim = claim,
+            Explanation = recommendationResult.Explanation,
+            Score = recommendationResult.Score,
+            GeneratedAt = DateTimeOffset.UtcNow
+        };
+
+        recommendation.SetRecommendedAction(recommendationResult.Action);
+        recommendation.Explanation = recommendationResult.Explanation;
+        recommendation.Score = recommendationResult.Score;
+
+        await _recommendations.AddAsync(recommendation, cancellationToken);
+        claim.ClaimRecommendations.Add(recommendation);
+
+        return MapClaim(claim, calculatedValues, recommendation);
+    }
+
+    private static ClaimCalculatedValues CalculateValues(MedicalClaim claim)
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var ageStart = claim.DateClaimSubmitted ?? claim.DateOfService;
+        var claimAgeDays = Math.Max(today.DayNumber - ageStart.DayNumber, 0);
+        int? daysUntilDeadline = claim.StatuteOfLimitationsDate is null
+            ? null
+            : claim.StatuteOfLimitationsDate.Value.DayNumber - today.DayNumber;
+
+        return new ClaimCalculatedValues
+        {
+            OutstandingBalance = claim.CalculateOutstandingBalance(),
+            UnderpaymentAmount = claim.CalculateUnderpaymentAmount(),
+            ClaimAgeDays = claimAgeDays,
+            PatientAgeYears = CalculatePatientAge(claim.PatientDateOfBirth, today),
+            DaysUntilDeadline = daysUntilDeadline,
+            Urgency = DetermineUrgency(claimAgeDays, daysUntilDeadline)
+        };
+    }
+
+    private static RecommendationResult RecommendAction(MedicalClaim claim, ClaimCalculatedValues values)
+    {
+        var balanceAtIssue = Math.Max(values.OutstandingBalance, values.UnderpaymentAmount ?? 0);
+        var hasDenialOrDispute = !string.IsNullOrWhiteSpace(claim.DenialCode)
+            || !string.IsNullOrWhiteSpace(claim.DenialReason);
+        var daysSinceFollowUp = claim.LastFollowUpDate is null
+            ? (int?)null
+            : DateOnly.FromDateTime(DateTime.UtcNow).DayNumber - claim.LastFollowUpDate.Value.DayNumber;
+
+        if (claim.Status is MedicalClaimStatuses.Closed or MedicalClaimStatuses.Recovered)
+        {
+            return BuildRecommendation(
+                RecommendedAction.NoAction,
+                "The claim is already closed or recovered, so no recovery action is needed.",
+                0);
+        }
+
+        if (balanceAtIssue <= 0)
+        {
+            return BuildRecommendation(
+                RecommendedAction.NoAction,
+                "The calculated outstanding balance and underpayment amount are zero, so there is no current recovery amount to pursue.",
+                5);
+        }
+
+        if (!claim.DocumentationComplete)
+        {
+            return BuildRecommendation(
+                RecommendedAction.RequestMoreInformation,
+                "The claim has money at issue, but the documentation is incomplete. Complete records are needed before legal recovery can be evaluated.",
+                CalculateScore(values, balanceAtIssue, hasDenialOrDispute));
+        }
+
+        if (values.DaysUntilDeadline is <= 15)
+        {
+            return BuildRecommendation(
+                RecommendedAction.EscalateForAttorneyReview,
+                "The legal deadline is within 15 days, so attorney review should happen before the recovery window is missed.",
+                100);
+        }
+
+        if (hasDenialOrDispute && balanceAtIssue >= 25000 && values.ClaimAgeDays >= 90)
+        {
+            return BuildRecommendation(
+                RecommendedAction.EscalateForAttorneyReview,
+                "The claim has denial or dispute information, a high balance, and has aged at least 90 days. That combination needs attorney review.",
+                CalculateScore(values, balanceAtIssue, hasDenialOrDispute));
+        }
+
+        if (balanceAtIssue >= 25000 && values.ClaimAgeDays >= 60)
+        {
+            return BuildRecommendation(
+                RecommendedAction.PrepareDemandLetter,
+                "The balance is high and the claim has been pending for at least 60 days, so a formal demand letter is appropriate.",
+                CalculateScore(values, balanceAtIssue, hasDenialOrDispute));
+        }
+
+        if (hasDenialOrDispute)
+        {
+            return BuildRecommendation(
+                RecommendedAction.ReviewDenial,
+                "The payer supplied denial or dispute information. Review the denial basis before deciding whether to demand payment or escalate.",
+                CalculateScore(values, balanceAtIssue, hasDenialOrDispute));
+        }
+
+        if (values.ClaimAgeDays >= 45 || daysSinceFollowUp >= 30)
+        {
+            return BuildRecommendation(
+                RecommendedAction.FollowUpWithPayerProvider,
+                "The claim still has a balance and has aged enough to justify active follow-up with the payer or provider.",
+                CalculateScore(values, balanceAtIssue, hasDenialOrDispute));
+        }
+
+        return BuildRecommendation(
+            RecommendedAction.Monitor,
+            "The claim has an open balance, but it is still relatively recent and has no denial or urgent deadline signals.",
+            CalculateScore(values, balanceAtIssue, hasDenialOrDispute));
+    }
+
+    private static string DeterminePriority(MedicalClaim claim, ClaimCalculatedValues values)
+    {
+        var balanceAtIssue = Math.Max(values.OutstandingBalance, values.UnderpaymentAmount ?? 0);
+        var hasDenialOrDispute = !string.IsNullOrWhiteSpace(claim.DenialCode)
+            || !string.IsNullOrWhiteSpace(claim.DenialReason);
+
+        if (values.DaysUntilDeadline is <= 15 || balanceAtIssue >= 25000 && values.ClaimAgeDays >= 90)
+        {
+            return ClaimPriorities.Urgent;
+        }
+
+        if (values.DaysUntilDeadline is <= 30 || balanceAtIssue >= 10000 || hasDenialOrDispute && values.ClaimAgeDays >= 30)
+        {
+            return ClaimPriorities.High;
+        }
+
+        return balanceAtIssue > 0 ? ClaimPriorities.Normal : ClaimPriorities.Low;
+    }
+
+    private static string DetermineUrgency(int claimAgeDays, int? daysUntilDeadline)
+    {
+        if (daysUntilDeadline is <= 15)
+        {
+            return "Immediate";
+        }
+
+        if (daysUntilDeadline is <= 30 || claimAgeDays >= 180)
+        {
+            return "High";
+        }
+
+        if (daysUntilDeadline is <= 90 || claimAgeDays >= 90)
+        {
+            return "Moderate";
+        }
+
+        return "Normal";
+    }
+
+    private static int? CalculatePatientAge(DateOnly? dateOfBirth, DateOnly today)
+    {
+        if (dateOfBirth is null)
+        {
+            return null;
+        }
+
+        var age = today.Year - dateOfBirth.Value.Year;
+        if (today < dateOfBirth.Value.AddYears(age))
+        {
+            age--;
+        }
+
+        return Math.Max(age, 0);
+    }
+
+    private static decimal CalculateScore(ClaimCalculatedValues values, decimal balanceAtIssue, bool hasDenialOrDispute)
+    {
+        var score = 20m;
+
+        score += Math.Min(balanceAtIssue / 1000m, 30m);
+        score += Math.Min(values.ClaimAgeDays / 3m, 25m);
+
+        if (hasDenialOrDispute)
+        {
+            score += 15m;
+        }
+
+        if (values.DaysUntilDeadline is <= 30)
+        {
+            score += 20m;
+        }
+        else if (values.DaysUntilDeadline is <= 90)
+        {
+            score += 10m;
+        }
+
+        return Math.Min(decimal.Round(score, 2), 100m);
+    }
+
+    private static RecommendationResult BuildRecommendation(RecommendedAction action, string explanation, decimal score)
+    {
+        return new RecommendationResult(action, explanation, Math.Min(decimal.Round(score, 2), 100m));
+    }
+
+    private static void ValidateCreateRequest(CreateMedicalClaimRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.ClaimNumber))
+        {
+            throw new ArgumentException("Claim number is required.", nameof(request));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.PatientIdentifier))
+        {
+            throw new ArgumentException("Patient identifier is required.", nameof(request));
+        }
+
+        if (request.HospitalId <= 0)
+        {
+            throw new ArgumentException("Hospital is required.", nameof(request));
+        }
+
+        if (request.InsuranceCompanyId <= 0)
+        {
+            throw new ArgumentException("Insurance company is required.", nameof(request));
+        }
+
+        if (request.DateOfService == default)
+        {
+            throw new ArgumentException("Date of service is required.", nameof(request));
+        }
+
+        if (request.DateClaimSubmitted < request.DateOfService)
+        {
+            throw new ArgumentException("Claim submitted date cannot be before the date of service.", nameof(request));
+        }
+
+        if (request.AmountBilled < 0 || request.AmountPaid < 0 || request.ExpectedPaymentAmount < 0)
+        {
+            throw new ArgumentException("Claim amounts cannot be negative.", nameof(request));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Status) && !MedicalClaimStatuses.IsValid(request.Status.Trim()))
+        {
+            throw new ArgumentException("Claim status is invalid.", nameof(request));
+        }
+    }
+
+    private static MedicalClaimResponse MapClaim(
+        MedicalClaim claim,
+        ClaimCalculatedValues calculatedValues,
+        ClaimRecommendation? latestRecommendation)
+    {
+        return new MedicalClaimResponse
+        {
+            Id = claim.Id,
+            ClaimNumber = claim.ClaimNumber,
+            BatchId = claim.BatchId,
+            HospitalId = claim.HospitalId,
+            InsuranceCompanyId = claim.InsuranceCompanyId,
+            PatientIdentifier = claim.PatientIdentifier,
+            PatientDateOfBirth = claim.PatientDateOfBirth,
+            PolicyNumber = claim.PolicyNumber,
+            DateOfService = claim.DateOfService,
+            DateClaimSubmitted = claim.DateClaimSubmitted,
+            AmountBilled = claim.AmountBilled,
+            ExpectedPaymentAmount = claim.ExpectedPaymentAmount,
+            AmountPaid = claim.AmountPaid,
+            OutstandingBalance = calculatedValues.OutstandingBalance,
+            UnderpaymentAmount = calculatedValues.UnderpaymentAmount,
+            Division = claim.Division,
+            DenialReason = claim.DenialReason,
+            DenialCode = claim.DenialCode,
+            PayerResponseDate = claim.PayerResponseDate,
+            LastFollowUpDate = claim.LastFollowUpDate,
+            DocumentationComplete = claim.DocumentationComplete,
+            StatuteOfLimitationsDate = claim.StatuteOfLimitationsDate,
+            Status = claim.Status,
+            Priority = claim.Priority,
+            CalculatedValues = calculatedValues,
+            LatestRecommendation = latestRecommendation is null ? null : MapRecommendation(latestRecommendation)
+        };
+    }
+
+    private static ClaimRecommendationResponse MapRecommendation(ClaimRecommendation recommendation)
+    {
+        return new ClaimRecommendationResponse
+        {
+            Id = recommendation.Id,
+            MedicalClaimId = recommendation.MedicalClaimId,
+            RecommendedAction = recommendation.RecommendedAction,
+            Explanation = recommendation.Explanation,
+            Score = recommendation.Score,
+            DecisionStatus = recommendation.DecisionStatus,
+            FinalAction = recommendation.FinalAction,
+            OverrideReason = recommendation.OverrideReason,
+            DecidedBy = recommendation.DecidedBy,
+            DecidedAt = recommendation.DecidedAt,
+            GeneratedAt = recommendation.GeneratedAt
+        };
+    }
+
+    private static string? TrimToNull(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private sealed record RecommendationResult(RecommendedAction Action, string Explanation, decimal Score);
+}

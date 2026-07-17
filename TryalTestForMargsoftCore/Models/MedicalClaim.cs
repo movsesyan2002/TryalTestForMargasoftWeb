@@ -108,7 +108,7 @@ public class MedicalClaim
 
     public decimal CalculateOutstandingBalance()
     {
-        return AmountBilled - AmountPaid;
+        return Math.Max(AmountBilled - AmountPaid, 0);
     }
 
     public decimal? CalculateUnderpaymentAmount()
