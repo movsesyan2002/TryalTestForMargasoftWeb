@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using TryalTestForMargsoftCore.Constants;
 
 namespace TryalTestForMargsoftCore.Models;
 
@@ -30,7 +31,7 @@ public class ClaimBatch
 
     [Required]
     [StringLength(30)]
-    public string Status { get; set; } = "Draft";
+    public string Status { get; set; } = ClaimBatchStatuses.Draft;
 
     [Required]
     [Column(TypeName = "timestamp with time zone")]

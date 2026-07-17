@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using TryalTestForMargsoftCore.Constants;
 
 namespace TryalTestForMargsoftCore.Models;
 
@@ -26,12 +27,18 @@ public class MedicalClaim
     [StringLength(100)]
     public string PatientIdentifier { get; set; } = string.Empty;
 
+    [Column(TypeName = "date")]
+    public DateOnly? PatientDateOfBirth { get; set; }
+
     [StringLength(100)]
     public string? PolicyNumber { get; set; }
 
     [Required]
     [Column(TypeName = "date")]
     public DateOnly DateOfService { get; set; }
+
+    [Column(TypeName = "date")]
+    public DateOnly? DateClaimSubmitted { get; set; }
 
     [Required]
     [Column(TypeName = "numeric(18, 2)")]
@@ -56,16 +63,27 @@ public class MedicalClaim
     [StringLength(500)]
     public string? DenialReason { get; set; }
 
+    [StringLength(100)]
+    public string? DenialCode { get; set; }
+
+    [Column(TypeName = "date")]
+    public DateOnly? PayerResponseDate { get; set; }
+
+    [Column(TypeName = "date")]
+    public DateOnly? LastFollowUpDate { get; set; }
+
+    public bool DocumentationComplete { get; set; }
+
     [Column(TypeName = "date")]
     public DateOnly? StatuteOfLimitationsDate { get; set; }
 
     [Required]
     [StringLength(30)]
-    public string Status { get; set; } = "New";
+    public string Status { get; set; } = MedicalClaimStatuses.New;
 
     [Required]
     [StringLength(20)]
-    public string Priority { get; set; } = "Normal";
+    public string Priority { get; set; } = ClaimPriorities.Normal;
 
     [Required]
     [Column(TypeName = "timestamp with time zone")]
@@ -87,4 +105,23 @@ public class MedicalClaim
     public InsuranceCompany InsuranceCompany { get; set; } = null!;
 
     public ICollection<ClaimRecommendation> ClaimRecommendations { get; set; } = [];
+
+    public decimal CalculateOutstandingBalance()
+    {
+        return AmountBilled - AmountPaid;
+    }
+
+    public decimal? CalculateUnderpaymentAmount()
+    {
+        return ExpectedPaymentAmount is null
+            ? null
+            : Math.Max(ExpectedPaymentAmount.Value - AmountPaid, 0);
+    }
+
+    public void RecalculateFinancials()
+    {
+        OutstandingBalance = CalculateOutstandingBalance();
+        UnderpaymentAmount = CalculateUnderpaymentAmount();
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
 }

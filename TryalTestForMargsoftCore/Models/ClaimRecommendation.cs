@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using TryalTestForMargsoftCore.Constants;
+using TryalTestForMargsoftCore.Enums;
 
 namespace TryalTestForMargsoftCore.Models;
 
@@ -25,7 +27,7 @@ public class ClaimRecommendation
 
     [Required]
     [StringLength(20)]
-    public string DecisionStatus { get; set; } = "Pending";
+    public string DecisionStatus { get; set; } = ClaimDecisionStatuses.Pending;
 
     [StringLength(150)]
     public string? FinalAction { get; set; }
@@ -46,4 +48,42 @@ public class ClaimRecommendation
     [Required]
     [ForeignKey(nameof(MedicalClaimId))]
     public MedicalClaim MedicalClaim { get; set; } = null!;
+
+    public void SetRecommendedAction(RecommendedAction action)
+    {
+        RecommendedAction = RecommendedActions.ToDatabaseValue(action);
+        DecisionStatus = ClaimDecisionStatuses.Pending;
+        FinalAction = null;
+        OverrideReason = null;
+        DecidedBy = null;
+        DecidedAt = null;
+    }
+
+    public void Confirm(string decidedBy, DateTimeOffset decidedAt)
+    {
+        if (!RecommendedActions.IsValid(RecommendedAction))
+        {
+            throw new InvalidOperationException("Cannot confirm a recommendation with an invalid recommended action.");
+        }
+
+        DecisionStatus = ClaimDecisionStatuses.Confirmed;
+        FinalAction = RecommendedAction;
+        OverrideReason = null;
+        DecidedBy = decidedBy;
+        DecidedAt = decidedAt;
+    }
+
+    public void Override(RecommendedAction finalAction, string reason, string decidedBy, DateTimeOffset decidedAt)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new ArgumentException("Override reason is required.", nameof(reason));
+        }
+
+        DecisionStatus = ClaimDecisionStatuses.Overridden;
+        FinalAction = RecommendedActions.ToDatabaseValue(finalAction);
+        OverrideReason = reason.Trim();
+        DecidedBy = decidedBy;
+        DecidedAt = decidedAt;
+    }
 }
