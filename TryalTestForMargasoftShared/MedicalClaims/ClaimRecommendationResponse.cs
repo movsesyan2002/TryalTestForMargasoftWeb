@@ -10,8 +10,6 @@ public sealed class ClaimRecommendationResponse
 
     public string Explanation { get; set; } = string.Empty;
 
-    public decimal? Score { get; set; }
-
     public string DecisionStatus { get; set; } = string.Empty;
 
     public string? FinalAction { get; set; }

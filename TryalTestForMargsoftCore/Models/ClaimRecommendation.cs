@@ -22,9 +22,6 @@ public class ClaimRecommendation
     [Column(TypeName = "text")]
     public string Explanation { get; set; } = string.Empty;
 
-    [Column(TypeName = "numeric(5, 2)")]
-    public decimal? Score { get; set; }
-
     [Required]
     [StringLength(20)]
     public string DecisionStatus { get; set; } = ClaimDecisionStatuses.Pending;

@@ -183,13 +183,11 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
             MedicalClaimId = claim.Id,
             MedicalClaim = claim,
             Explanation = recommendationResult.Explanation,
-            Score = recommendationResult.Score,
             GeneratedAt = DateTimeOffset.UtcNow
         };
 
         recommendation.SetRecommendedAction(recommendationResult.Action);
         recommendation.Explanation = recommendationResult.Explanation;
-        recommendation.Score = recommendationResult.Score;
 
         await _recommendations.AddAsync(recommendation, cancellationToken);
         claim.ClaimRecommendations.Add(recommendation);
@@ -236,70 +234,61 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         {
             return BuildRecommendation(
                 RecommendedAction.NoAction,
-                "The claim is already closed or recovered, so no recovery action is needed.",
-                0);
+                "The claim is already closed or recovered, so no recovery action is needed.");
         }
 
         if (balanceAtIssue <= 0)
         {
             return BuildRecommendation(
                 RecommendedAction.NoAction,
-                "The calculated outstanding balance and underpayment amount are zero, so there is no current recovery amount to pursue.",
-                5);
+                "The calculated outstanding balance and underpayment amount are zero, so there is no current recovery amount to pursue.");
         }
 
         if (!claim.DocumentationComplete)
         {
             return BuildRecommendation(
                 RecommendedAction.RequestMoreInformation,
-                "The claim has money at issue, but the documentation is incomplete. Complete records are needed before legal recovery can be evaluated.",
-                CalculateScore(values, balanceAtIssue, hasDenialOrDispute));
+                "The claim has money at issue, but the documentation is incomplete. Complete records are needed before legal recovery can be evaluated.");
         }
 
         if (values.DaysUntilDeadline is <= 15)
         {
             return BuildRecommendation(
                 RecommendedAction.EscalateForAttorneyReview,
-                "The legal deadline is within 15 days, so attorney review should happen before the recovery window is missed.",
-                100);
+                "The legal deadline is within 15 days, so attorney review should happen before the recovery window is missed.");
         }
 
         if (hasDenialOrDispute && balanceAtIssue >= 25000 && values.ClaimAgeDays >= 90)
         {
             return BuildRecommendation(
                 RecommendedAction.EscalateForAttorneyReview,
-                "The claim has denial or dispute information, a high balance, and has aged at least 90 days. That combination needs attorney review.",
-                CalculateScore(values, balanceAtIssue, hasDenialOrDispute));
+                "The claim has denial or dispute information, a high balance, and has aged at least 90 days. That combination needs attorney review.");
         }
 
         if (balanceAtIssue >= 25000 && values.ClaimAgeDays >= 60)
         {
             return BuildRecommendation(
                 RecommendedAction.PrepareDemandLetter,
-                "The balance is high and the claim has been pending for at least 60 days, so a formal demand letter is appropriate.",
-                CalculateScore(values, balanceAtIssue, hasDenialOrDispute));
+                "The balance is high and the claim has been pending for at least 60 days, so a formal demand letter is appropriate.");
         }
 
         if (hasDenialOrDispute)
         {
             return BuildRecommendation(
                 RecommendedAction.ReviewDenial,
-                "The payer supplied denial or dispute information. Review the denial basis before deciding whether to demand payment or escalate.",
-                CalculateScore(values, balanceAtIssue, hasDenialOrDispute));
+                "The payer supplied denial or dispute information. Review the denial basis before deciding whether to demand payment or escalate.");
         }
 
         if (values.ClaimAgeDays >= 45 || daysSinceFollowUp >= 30)
         {
             return BuildRecommendation(
                 RecommendedAction.FollowUpWithPayerProvider,
-                "The claim still has a balance and has aged enough to justify active follow-up with the payer or provider.",
-                CalculateScore(values, balanceAtIssue, hasDenialOrDispute));
+                "The claim still has a balance and has aged enough to justify active follow-up with the payer or provider.");
         }
 
         return BuildRecommendation(
             RecommendedAction.Monitor,
-            "The claim has an open balance, but it is still relatively recent and has no denial or urgent deadline signals.",
-            CalculateScore(values, balanceAtIssue, hasDenialOrDispute));
+            "The claim has an open balance, but it is still relatively recent and has no denial or urgent deadline signals.");
     }
 
     /// <summary>
@@ -367,38 +356,11 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
     }
 
     /// <summary>
-    /// Produces a capped recommendation score from claim value, age, denial status, and deadline proximity.
+    /// Builds a recommendation result from the selected action and explanation.
     /// </summary>
-    private static decimal CalculateScore(ClaimCalculatedValues values, decimal balanceAtIssue, bool hasDenialOrDispute)
+    private static RecommendationResult BuildRecommendation(RecommendedAction action, string explanation)
     {
-        var score = 20m;
-
-        score += Math.Min(balanceAtIssue / 1000m, 30m);
-        score += Math.Min(values.ClaimAgeDays / 3m, 25m);
-
-        if (hasDenialOrDispute)
-        {
-            score += 15m;
-        }
-
-        if (values.DaysUntilDeadline is <= 30)
-        {
-            score += 20m;
-        }
-        else if (values.DaysUntilDeadline is <= 90)
-        {
-            score += 10m;
-        }
-
-        return Math.Min(decimal.Round(score, 2), 100m);
-    }
-
-    /// <summary>
-    /// Builds a recommendation result with a rounded score capped at 100.
-    /// </summary>
-    private static RecommendationResult BuildRecommendation(RecommendedAction action, string explanation, decimal score)
-    {
-        return new RecommendationResult(action, explanation, Math.Min(decimal.Round(score, 2), 100m));
+        return new RecommendationResult(action, explanation);
     }
 
     /// <summary>
@@ -501,5 +463,5 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    private sealed record RecommendationResult(RecommendedAction Action, string Explanation, decimal Score);
+    private sealed record RecommendationResult(RecommendedAction Action, string Explanation);
 }
