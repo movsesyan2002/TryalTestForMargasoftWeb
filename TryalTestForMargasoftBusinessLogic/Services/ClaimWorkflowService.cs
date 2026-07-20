@@ -1,25 +1,32 @@
+using AutoMapper;
 using TryalTestForMargasoftBusinessLogic.Interfaces;
+using TryalTestForMargasoftInfrastrcture.Repositories;
 using TryalTestForMargasoftShared.MedicalClaims;
 using TryalTestForMargsoftCore.Constants;
 using TryalTestForMargsoftCore.Enums;
 using TryalTestForMargsoftCore.Models;
-using TryalTestForMargsoftCore.Repositories;
 
 namespace TryalTestForMargasoftBusinessLogic.Services;
 
 public sealed class ClaimWorkflowService : IClaimWorkflowService
 {
-    private readonly IMedicalClaimRepository _medicalClaims;
-    private readonly IClaimRecommendationRepository _recommendations;
+    private readonly EfMedicalClaimRepository _medicalClaims;
+    private readonly EfClaimRecommendationRepository _recommendations;
+    private readonly IMapper _mapper;
 
     public ClaimWorkflowService(
-        IMedicalClaimRepository medicalClaims,
-        IClaimRecommendationRepository recommendations)
+        EfMedicalClaimRepository medicalClaims,
+        EfClaimRecommendationRepository recommendations,
+        IMapper mapper)
     {
         _medicalClaims = medicalClaims;
         _recommendations = recommendations;
+        _mapper = mapper;
     }
 
+    /// <summary>
+    /// Creates a medical claim, recalculates its financial values, and generates the initial recommendation.
+    /// </summary>
     public async Task<MedicalClaimResponse> CreateClaimAsync(CreateMedicalClaimRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -57,6 +64,9 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         return await AnalyzeExistingClaimAsync(claim, cancellationToken);
     }
 
+    /// <summary>
+    /// Gets a medical claim by identifier with its latest recommendation, when the claim exists.
+    /// </summary>
     public async Task<MedicalClaimResponse?> GetClaimAsync(long id, CancellationToken cancellationToken = default)
     {
         var claim = await _medicalClaims.GetByIdAsync(id, cancellationToken);
@@ -69,6 +79,9 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         return MapClaim(claim, CalculateValues(claim), latestRecommendation);
     }
 
+    /// <summary>
+    /// Lists all medical claims with calculated values and their latest recommendations.
+    /// </summary>
     public async Task<IReadOnlyCollection<MedicalClaimResponse>> ListClaimsAsync(CancellationToken cancellationToken = default)
     {
         var claims = await _medicalClaims.ListAsync(cancellationToken);
@@ -83,6 +96,9 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         return responses;
     }
 
+    /// <summary>
+    /// Re-runs recommendation analysis for an existing medical claim.
+    /// </summary>
     public async Task<MedicalClaimResponse> AnalyzeClaimAsync(long id, CancellationToken cancellationToken = default)
     {
         var claim = await _medicalClaims.GetByIdAsync(id, cancellationToken)
@@ -91,6 +107,9 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         return await AnalyzeExistingClaimAsync(claim, cancellationToken);
     }
 
+    /// <summary>
+    /// Confirms the generated recommendation as the final action.
+    /// </summary>
     public async Task<ClaimRecommendationResponse> ConfirmRecommendationAsync(
         long recommendationId,
         string decidedBy,
@@ -110,6 +129,9 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         return MapRecommendation(recommendation);
     }
 
+    /// <summary>
+    /// Replaces the generated recommendation with a manually selected final action.
+    /// </summary>
     public async Task<ClaimRecommendationResponse> OverrideRecommendationAsync(
         long recommendationId,
         RecommendedAction finalAction,
@@ -131,6 +153,9 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         return MapRecommendation(recommendation);
     }
 
+    /// <summary>
+    /// Updates claim calculations and stores a fresh recommendation for an already persisted claim.
+    /// </summary>
     private async Task<MedicalClaimResponse> AnalyzeExistingClaimAsync(MedicalClaim claim, CancellationToken cancellationToken)
     {
         claim.RecalculateFinancials();
@@ -165,6 +190,9 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         return MapClaim(claim, calculatedValues, recommendation);
     }
 
+    /// <summary>
+    /// Calculates derived financial, aging, patient, and legal-deadline values for recommendation rules.
+    /// </summary>
     private static ClaimCalculatedValues CalculateValues(MedicalClaim claim)
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -185,6 +213,9 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         };
     }
 
+    /// <summary>
+    /// Chooses the recovery action from claim balance, documentation, denial, age, and deadline signals.
+    /// </summary>
     private static RecommendationResult RecommendAction(MedicalClaim claim, ClaimCalculatedValues values)
     {
         var balanceAtIssue = Math.Max(values.OutstandingBalance, values.UnderpaymentAmount ?? 0);
@@ -264,6 +295,9 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
             CalculateScore(values, balanceAtIssue, hasDenialOrDispute));
     }
 
+    /// <summary>
+    /// Assigns claim priority from legal deadline, balance, denial, and aging signals.
+    /// </summary>
     private static string DeterminePriority(MedicalClaim claim, ClaimCalculatedValues values)
     {
         var balanceAtIssue = Math.Max(values.OutstandingBalance, values.UnderpaymentAmount ?? 0);
@@ -283,6 +317,9 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         return balanceAtIssue > 0 ? ClaimPriorities.Normal : ClaimPriorities.Low;
     }
 
+    /// <summary>
+    /// Converts claim age and deadline proximity into a user-facing urgency label.
+    /// </summary>
     private static string DetermineUrgency(int claimAgeDays, int? daysUntilDeadline)
     {
         if (daysUntilDeadline is <= 15)
@@ -303,6 +340,9 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         return "Normal";
     }
 
+    /// <summary>
+    /// Calculates the patient age in whole years on the supplied date.
+    /// </summary>
     private static int? CalculatePatientAge(DateOnly? dateOfBirth, DateOnly today)
     {
         if (dateOfBirth is null)
@@ -319,6 +359,9 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         return Math.Max(age, 0);
     }
 
+    /// <summary>
+    /// Produces a capped recommendation score from claim value, age, denial status, and deadline proximity.
+    /// </summary>
     private static decimal CalculateScore(ClaimCalculatedValues values, decimal balanceAtIssue, bool hasDenialOrDispute)
     {
         var score = 20m;
@@ -343,11 +386,17 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         return Math.Min(decimal.Round(score, 2), 100m);
     }
 
+    /// <summary>
+    /// Builds a recommendation result with a rounded score capped at 100.
+    /// </summary>
     private static RecommendationResult BuildRecommendation(RecommendedAction action, string explanation, decimal score)
     {
         return new RecommendationResult(action, explanation, Math.Min(decimal.Round(score, 2), 100m));
     }
 
+    /// <summary>
+    /// Validates the minimum required fields and value ranges for creating a claim.
+    /// </summary>
     private static void ValidateCreateRequest(CreateMedicalClaimRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.ClaimNumber))
@@ -391,60 +440,37 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         }
     }
 
-    private static MedicalClaimResponse MapClaim(
+    /// <summary>
+    /// Maps a claim entity to its API response and injects calculated values and the latest recommendation.
+    /// </summary>
+    private MedicalClaimResponse MapClaim(
         MedicalClaim claim,
         ClaimCalculatedValues calculatedValues,
         ClaimRecommendation? latestRecommendation)
     {
-        return new MedicalClaimResponse
-        {
-            Id = claim.Id,
-            ClaimNumber = claim.ClaimNumber,
-            BatchId = claim.BatchId,
-            HospitalId = claim.HospitalId,
-            InsuranceCompanyId = claim.InsuranceCompanyId,
-            PatientIdentifier = claim.PatientIdentifier,
-            PatientDateOfBirth = claim.PatientDateOfBirth,
-            PolicyNumber = claim.PolicyNumber,
-            DateOfService = claim.DateOfService,
-            DateClaimSubmitted = claim.DateClaimSubmitted,
-            AmountBilled = claim.AmountBilled,
-            ExpectedPaymentAmount = claim.ExpectedPaymentAmount,
-            AmountPaid = claim.AmountPaid,
-            OutstandingBalance = calculatedValues.OutstandingBalance,
-            UnderpaymentAmount = calculatedValues.UnderpaymentAmount,
-            Division = claim.Division,
-            DenialReason = claim.DenialReason,
-            DenialCode = claim.DenialCode,
-            PayerResponseDate = claim.PayerResponseDate,
-            LastFollowUpDate = claim.LastFollowUpDate,
-            DocumentationComplete = claim.DocumentationComplete,
-            StatuteOfLimitationsDate = claim.StatuteOfLimitationsDate,
-            Status = claim.Status,
-            Priority = claim.Priority,
-            CalculatedValues = calculatedValues,
-            LatestRecommendation = latestRecommendation is null ? null : MapRecommendation(latestRecommendation)
-        };
+        var response = _mapper.Map<MedicalClaimResponse>(claim);
+
+        response.OutstandingBalance = calculatedValues.OutstandingBalance;
+        response.UnderpaymentAmount = calculatedValues.UnderpaymentAmount;
+        response.CalculatedValues = calculatedValues;
+        response.LatestRecommendation = latestRecommendation is null
+            ? null
+            : MapRecommendation(latestRecommendation);
+
+        return response;
     }
 
-    private static ClaimRecommendationResponse MapRecommendation(ClaimRecommendation recommendation)
+    /// <summary>
+    /// Maps a recommendation entity to its API response.
+    /// </summary>
+    private ClaimRecommendationResponse MapRecommendation(ClaimRecommendation recommendation)
     {
-        return new ClaimRecommendationResponse
-        {
-            Id = recommendation.Id,
-            MedicalClaimId = recommendation.MedicalClaimId,
-            RecommendedAction = recommendation.RecommendedAction,
-            Explanation = recommendation.Explanation,
-            Score = recommendation.Score,
-            DecisionStatus = recommendation.DecisionStatus,
-            FinalAction = recommendation.FinalAction,
-            OverrideReason = recommendation.OverrideReason,
-            DecidedBy = recommendation.DecidedBy,
-            DecidedAt = recommendation.DecidedAt,
-            GeneratedAt = recommendation.GeneratedAt
-        };
+        return _mapper.Map<ClaimRecommendationResponse>(recommendation);
     }
 
+    /// <summary>
+    /// Normalizes optional text by trimming meaningful values and storing blanks as null.
+    /// </summary>
     private static string? TrimToNull(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();

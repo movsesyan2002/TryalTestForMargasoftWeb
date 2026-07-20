@@ -106,11 +106,17 @@ public class MedicalClaim
 
     public ICollection<ClaimRecommendation> ClaimRecommendations { get; set; } = [];
 
+    /// <summary>
+    /// Calculates the unpaid amount from the billed and paid claim totals.
+    /// </summary>
     public decimal CalculateOutstandingBalance()
     {
         return Math.Max(AmountBilled - AmountPaid, 0);
     }
 
+    /// <summary>
+    /// Calculates the underpayment amount when an expected payment amount is available.
+    /// </summary>
     public decimal? CalculateUnderpaymentAmount()
     {
         return ExpectedPaymentAmount is null
@@ -118,6 +124,9 @@ public class MedicalClaim
             : Math.Max(ExpectedPaymentAmount.Value - AmountPaid, 0);
     }
 
+    /// <summary>
+    /// Refreshes stored financial calculations and updates the modification timestamp.
+    /// </summary>
     public void RecalculateFinancials()
     {
         OutstandingBalance = CalculateOutstandingBalance();

@@ -10,4 +10,8 @@
     <ProjectReference Include="..\TryalTestForMargsoftCore\TryalTestForMargsoftCore.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+  </ItemGroup>
+
 </Project>

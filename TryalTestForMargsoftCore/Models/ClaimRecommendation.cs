@@ -49,6 +49,9 @@ public class ClaimRecommendation
     [ForeignKey(nameof(MedicalClaimId))]
     public MedicalClaim MedicalClaim { get; set; } = null!;
 
+    /// <summary>
+    /// Stores the generated recommendation and resets any prior decision fields.
+    /// </summary>
     public void SetRecommendedAction(RecommendedAction action)
     {
         RecommendedAction = RecommendedActions.ToDatabaseValue(action);
@@ -59,6 +62,9 @@ public class ClaimRecommendation
         DecidedAt = null;
     }
 
+    /// <summary>
+    /// Accepts the generated recommendation as the final decision.
+    /// </summary>
     public void Confirm(string decidedBy, DateTimeOffset decidedAt)
     {
         if (!RecommendedActions.IsValid(RecommendedAction))
@@ -73,6 +79,9 @@ public class ClaimRecommendation
         DecidedAt = decidedAt;
     }
 
+    /// <summary>
+    /// Records a manual final action in place of the generated recommendation.
+    /// </summary>
     public void Override(RecommendedAction finalAction, string reason, string decidedBy, DateTimeOffset decidedAt)
     {
         if (string.IsNullOrWhiteSpace(reason))

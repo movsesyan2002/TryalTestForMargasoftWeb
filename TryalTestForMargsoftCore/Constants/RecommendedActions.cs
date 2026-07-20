@@ -23,11 +23,17 @@ public static class RecommendedActions
         EscalateForAttorneyReview
     };
 
+    /// <summary>
+    /// Returns whether the supplied database value is a supported recommendation action.
+    /// </summary>
     public static bool IsValid(string? action)
     {
         return !string.IsNullOrWhiteSpace(action) && All.Contains(action);
     }
 
+    /// <summary>
+    /// Converts a recommendation action enum value to the database label.
+    /// </summary>
     public static string ToDatabaseValue(RecommendedAction action)
     {
         return action switch
@@ -43,6 +49,9 @@ public static class RecommendedActions
         };
     }
 
+    /// <summary>
+    /// Parses a database label into the matching recommendation action enum value.
+    /// </summary>
     public static bool TryParseDatabaseValue(string? value, out RecommendedAction action)
     {
         action = default;

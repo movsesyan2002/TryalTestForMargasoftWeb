@@ -17,6 +17,9 @@ public sealed class MedicalClaimsController : ControllerBase
         _claimWorkflow = claimWorkflow;
     }
 
+    /// <summary>
+    /// Returns every medical claim with calculated values and the latest recommendation.
+    /// </summary>
     [HttpGet]
     public async Task<ActionResult<IReadOnlyCollection<MedicalClaimResponse>>> ListClaims(CancellationToken cancellationToken)
     {
@@ -24,6 +27,9 @@ public sealed class MedicalClaimsController : ControllerBase
         return Ok(claims);
     }
 
+    /// <summary>
+    /// Returns one medical claim by identifier, or 404 when it does not exist.
+    /// </summary>
     [HttpGet("{id:long}")]
     public async Task<ActionResult<MedicalClaimResponse>> GetClaim(long id, CancellationToken cancellationToken)
     {
@@ -31,6 +37,9 @@ public sealed class MedicalClaimsController : ControllerBase
         return claim is null ? NotFound() : Ok(claim);
     }
 
+    /// <summary>
+    /// Creates a medical claim and returns the generated recommendation.
+    /// </summary>
     [HttpPost]
     public async Task<ActionResult<MedicalClaimResponse>> CreateClaim(
         CreateMedicalClaimRequest request,
@@ -47,6 +56,9 @@ public sealed class MedicalClaimsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Generates a new recommendation for an existing claim.
+    /// </summary>
     [HttpPost("{id:long}/recommendations")]
     public async Task<ActionResult<MedicalClaimResponse>> AnalyzeClaim(long id, CancellationToken cancellationToken)
     {
@@ -61,6 +73,9 @@ public sealed class MedicalClaimsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Confirms the generated recommendation as the final action.
+    /// </summary>
     [HttpPost("recommendations/{recommendationId:long}/confirm")]
     public async Task<ActionResult<ClaimRecommendationResponse>> ConfirmRecommendation(
         long recommendationId,
@@ -86,6 +101,9 @@ public sealed class MedicalClaimsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Overrides the generated recommendation with a manually selected final action.
+    /// </summary>
     [HttpPost("recommendations/{recommendationId:long}/override")]
     public async Task<ActionResult<ClaimRecommendationResponse>> OverrideRecommendation(
         long recommendationId,
@@ -118,6 +136,9 @@ public sealed class MedicalClaimsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Parses either the database label or enum name for a recommended action.
+    /// </summary>
     private static bool TryParseAction(string? value, out RecommendedAction action)
     {
         if (RecommendedActions.TryParseDatabaseValue(value, out action))

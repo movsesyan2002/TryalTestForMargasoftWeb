@@ -1,17 +1,23 @@
 using TryalTestForMargasoftBusinessLogic.Interfaces;
+using TryalTestForMargasoftBusinessLogic.Mappings;
 using TryalTestForMargasoftBusinessLogic.Services;
-using TryalTestForMargasoftInfrastrcture.Repositories;
-using TryalTestForMargsoftCore.Repositories;
+using TryalTestForMargasoftInfrastrcture;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
 builder.Services.AddControllers();
-builder.Services.AddSingleton<IMedicalClaimRepository, InMemoryMedicalClaimRepository>();
-builder.Services.AddSingleton<IClaimRecommendationRepository, InMemoryClaimRecommendationRepository>();
+
+builder.Services.AddInfrastructure(
+    builder.Configuration.GetConnectionString("DefaultConnection")
+        ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured."));
+
+builder.Services.AddAutoMapper(configuration =>
+    configuration.AddProfile<MedicalClaimMappingProfile>());
+
 builder.Services.AddScoped<IClaimWorkflowService, ClaimWorkflowService>();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
