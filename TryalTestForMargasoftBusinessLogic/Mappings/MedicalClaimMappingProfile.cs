@@ -1,4 +1,5 @@
 using AutoMapper;
+using TryalTestForMargasoftShared.Lookups;
 using TryalTestForMargasoftShared.MedicalClaims;
 using TryalTestForMargsoftCore.Models;
 
@@ -11,6 +12,8 @@ public sealed class MedicalClaimMappingProfile : Profile
     /// </summary>
     public MedicalClaimMappingProfile()
     {
+        CreateMap<Hospital, HospitalResponse>();
+        CreateMap<InsuranceCompany, InsuranceCompanyResponse>();
         CreateMap<ClaimRecommendation, ClaimRecommendationResponse>();
 
         CreateMap<MedicalClaim, MedicalClaimResponse>()

@@ -17,6 +17,7 @@ builder.Services.AddAutoMapper(configuration =>
     configuration.AddProfile<MedicalClaimMappingProfile>());
 
 builder.Services.AddScoped<IClaimWorkflowService, ClaimWorkflowService>();
+builder.Services.AddScoped<IClaimLookupService, ClaimLookupService>();
 
 builder.Services.AddOpenApi();
 

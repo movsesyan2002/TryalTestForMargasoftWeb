@@ -12,15 +12,21 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
 {
     private readonly EfMedicalClaimRepository _medicalClaims;
     private readonly EfClaimRecommendationRepository _recommendations;
+    private readonly EfHospitalRepository _hospitals;
+    private readonly EfInsuranceCompanyRepository _insuranceCompanies;
     private readonly IMapper _mapper;
 
     public ClaimWorkflowService(
         EfMedicalClaimRepository medicalClaims,
         EfClaimRecommendationRepository recommendations,
+        EfHospitalRepository hospitals,
+        EfInsuranceCompanyRepository insuranceCompanies,
         IMapper mapper)
     {
         _medicalClaims = medicalClaims;
         _recommendations = recommendations;
+        _hospitals = hospitals;
+        _insuranceCompanies = insuranceCompanies;
         _mapper = mapper;
     }
 
@@ -31,6 +37,7 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
     {
         ArgumentNullException.ThrowIfNull(request);
         ValidateCreateRequest(request);
+        await ValidateLookupReferencesAsync(request, cancellationToken);
 
         var claim = new MedicalClaim
         {
@@ -437,6 +444,24 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
         if (!string.IsNullOrWhiteSpace(request.Status) && !MedicalClaimStatuses.IsValid(request.Status.Trim()))
         {
             throw new ArgumentException("Claim status is invalid.", nameof(request));
+        }
+    }
+
+    /// <summary>
+    /// Verifies claim lookup identifiers point to existing hospital and insurance company records.
+    /// </summary>
+    private async Task ValidateLookupReferencesAsync(CreateMedicalClaimRequest request, CancellationToken cancellationToken)
+    {
+        var hospital = await _hospitals.GetByIdAsync(request.HospitalId, cancellationToken);
+        if (hospital is null)
+        {
+            throw new ArgumentException("Hospital was not found.", nameof(request));
+        }
+
+        var insuranceCompany = await _insuranceCompanies.GetByIdAsync(request.InsuranceCompanyId, cancellationToken);
+        if (insuranceCompany is null)
+        {
+            throw new ArgumentException("Insurance company was not found.", nameof(request));
         }
     }
 

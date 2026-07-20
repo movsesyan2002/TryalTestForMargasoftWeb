@@ -24,6 +24,8 @@ public static class DependencyInjection
 
         services.AddScoped<EfMedicalClaimRepository>();
         services.AddScoped<EfClaimRecommendationRepository>();
+        services.AddScoped<EfHospitalRepository>();
+        services.AddScoped<EfInsuranceCompanyRepository>();
 
         return services;
     }
