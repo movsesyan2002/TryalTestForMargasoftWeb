@@ -41,7 +41,6 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
 
         var claim = new MedicalClaim
         {
-            BatchId = request.BatchId,
             ClaimNumber = request.ClaimNumber.Trim(),
             HospitalId = request.HospitalId,
             InsuranceCompanyId = request.InsuranceCompanyId,

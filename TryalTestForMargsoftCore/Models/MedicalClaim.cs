@@ -16,9 +16,6 @@ public class MedicalClaim
     public string ClaimNumber { get; set; } = string.Empty;
 
 
-    public long? BatchId { get; set; }
-
-
     public long HospitalId { get; set; }
 
     public long InsuranceCompanyId { get; set; }
@@ -92,9 +89,6 @@ public class MedicalClaim
     [Required]
     [Column(TypeName = "timestamp with time zone")]
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
-
-    [ForeignKey(nameof(BatchId))]
-    public ClaimBatch? Batch { get; set; }
 
     [Required]
     [ForeignKey(nameof(HospitalId))]

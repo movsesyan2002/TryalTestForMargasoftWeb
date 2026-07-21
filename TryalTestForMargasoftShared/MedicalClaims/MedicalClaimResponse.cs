@@ -6,8 +6,6 @@ public sealed class MedicalClaimResponse
 
     public string ClaimNumber { get; set; } = string.Empty;
 
-    public long? BatchId { get; set; }
-
     public long HospitalId { get; set; }
 
     public long InsuranceCompanyId { get; set; }

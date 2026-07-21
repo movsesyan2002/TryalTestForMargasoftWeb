@@ -32,12 +32,6 @@ public sealed class TryalTestDbContext : DbContext
             .IsUnique();
 
         modelBuilder.Entity<MedicalClaim>()
-            .HasOne(claim => claim.Batch)
-            .WithMany(batch => batch.MedicalClaims)
-            .HasForeignKey(claim => claim.BatchId)
-            .OnDelete(DeleteBehavior.SetNull);
-
-        modelBuilder.Entity<MedicalClaim>()
             .HasOne(claim => claim.Hospital)
             .WithMany(hospital => hospital.MedicalClaims)
             .HasForeignKey(claim => claim.HospitalId)

@@ -46,5 +46,4 @@ public class ClaimBatch
     [ForeignKey(nameof(InsuranceCompanyId))]
     public InsuranceCompany? InsuranceCompany { get; set; }
 
-    public ICollection<MedicalClaim> MedicalClaims { get; set; } = [];
 }
