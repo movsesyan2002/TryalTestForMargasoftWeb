@@ -18,7 +18,9 @@ public interface IClaimWorkflowService
     /// <summary>
     /// Lists all medical claims with calculated values and their latest recommendations.
     /// </summary>
-    Task<IReadOnlyCollection<MedicalClaimResponse>> ListClaimsAsync(CancellationToken cancellationToken = default);
+    Task<PagedMedicalClaimResponse> ListClaimsAsync(
+        MedicalClaimSearchRequest request,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Re-runs recommendation analysis for an existing medical claim.

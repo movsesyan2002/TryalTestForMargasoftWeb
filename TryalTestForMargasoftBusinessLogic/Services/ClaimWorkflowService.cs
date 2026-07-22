@@ -88,18 +88,43 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
     /// <summary>
     /// Lists all medical claims with calculated values and their latest recommendations.
     /// </summary>
-    public async Task<IReadOnlyCollection<MedicalClaimResponse>> ListClaimsAsync(CancellationToken cancellationToken = default)
+    public async Task<PagedMedicalClaimResponse> ListClaimsAsync(
+        MedicalClaimSearchRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var claims = await _medicalClaims.ListAsync(cancellationToken);
+        ArgumentNullException.ThrowIfNull(request);
+
+        var pageNumber = Math.Max(request.PageNumber, 1);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
+        var status = NormalizeStatus(request.Status);
+        var priority = NormalizePriority(request.Priority);
+
+        var (claims, totalCount) = await _medicalClaims.SearchAsync(
+            request.Search,
+            status,
+            priority,
+            request.HospitalId,
+            request.InsuranceCompanyId,
+            pageNumber,
+            pageSize,
+            cancellationToken);
+
         var responses = new List<MedicalClaimResponse>(claims.Count);
 
-        foreach (var claim in claims.OrderByDescending(claim => claim.CreatedAt))
+        foreach (var claim in claims)
         {
             var latestRecommendation = await _recommendations.GetLatestForClaimAsync(claim.Id, cancellationToken);
             responses.Add(MapClaim(claim, CalculateValues(claim), latestRecommendation));
         }
 
-        return responses;
+        return new PagedMedicalClaimResponse
+        {
+            Items = responses,
+            PageNumber = pageNumber,
+            PageSize = pageSize,
+            TotalCount = totalCount,
+            TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
+        };
     }
 
     /// <summary>
@@ -460,6 +485,48 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
     private static string? TrimToNull(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    /// <summary>
+    /// Normalizes optional status filters to the supported database value.
+    /// </summary>
+    private static string? NormalizeStatus(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return null;
+        }
+
+        var normalizedStatus = MedicalClaimStatuses.All
+            .FirstOrDefault(candidate => string.Equals(candidate, status.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        if (normalizedStatus is null)
+        {
+            throw new ArgumentException("Claim status filter is invalid.", nameof(status));
+        }
+
+        return normalizedStatus;
+    }
+
+    /// <summary>
+    /// Normalizes optional priority filters to the supported database value.
+    /// </summary>
+    private static string? NormalizePriority(string? priority)
+    {
+        if (string.IsNullOrWhiteSpace(priority))
+        {
+            return null;
+        }
+
+        var normalizedPriority = ClaimPriorities.All
+            .FirstOrDefault(candidate => string.Equals(candidate, priority.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        if (normalizedPriority is null)
+        {
+            throw new ArgumentException("Claim priority filter is invalid.", nameof(priority));
+        }
+
+        return normalizedPriority;
     }
 
     private sealed record RecommendationResult(RecommendedAction Action, string Explanation);

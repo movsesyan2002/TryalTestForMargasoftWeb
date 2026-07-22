@@ -18,13 +18,22 @@ public sealed class MedicalClaimsController : ControllerBase
     }
 
     /// <summary>
-    /// Returns every medical claim with calculated values and the latest recommendation.
+    /// Returns medical claims matching optional search, filter, and pagination query parameters.
     /// </summary>
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyCollection<MedicalClaimResponse>>> ListClaims(CancellationToken cancellationToken)
+    public async Task<ActionResult<PagedMedicalClaimResponse>> ListClaims(
+        [FromQuery] MedicalClaimSearchRequest request,
+        CancellationToken cancellationToken)
     {
-        var claims = await _claimWorkflow.ListClaimsAsync(cancellationToken);
-        return Ok(claims);
+        try
+        {
+            var claims = await _claimWorkflow.ListClaimsAsync(request, cancellationToken);
+            return Ok(claims);
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new { error = exception.Message });
+        }
     }
 
     /// <summary>
