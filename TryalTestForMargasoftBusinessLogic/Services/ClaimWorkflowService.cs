@@ -71,6 +71,55 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
     }
 
     /// <summary>
+    /// Updates an existing medical claim, refreshes its calculated values, and returns the latest recommendation.
+    /// </summary>
+    public async Task<MedicalClaimResponse> UpdateClaimAsync(
+        long id,
+        UpdateMedicalClaimRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateUpdateRequest(request);
+        await ValidateLookupReferencesAsync(request, cancellationToken);
+
+        var claim = await _medicalClaims.GetByIdAsync(id, cancellationToken)
+            ?? throw new KeyNotFoundException($"Medical claim {id} was not found.");
+
+        claim.ClaimNumber = request.ClaimNumber.Trim();
+        claim.HospitalId = request.HospitalId;
+        claim.InsuranceCompanyId = request.InsuranceCompanyId;
+        claim.PatientIdentifier = request.PatientIdentifier.Trim();
+        claim.PatientDateOfBirth = request.PatientDateOfBirth;
+        claim.PolicyNumber = TrimToNull(request.PolicyNumber);
+        claim.DateOfService = request.DateOfService;
+        claim.DateClaimSubmitted = request.DateClaimSubmitted;
+        claim.AmountBilled = request.AmountBilled;
+        claim.ExpectedPaymentAmount = request.ExpectedPaymentAmount;
+        claim.AmountPaid = request.AmountPaid;
+        claim.Division = TrimToNull(request.Division);
+        claim.DenialReason = TrimToNull(request.DenialReason);
+        claim.DenialCode = TrimToNull(request.DenialCode);
+        claim.PayerResponseDate = request.PayerResponseDate;
+        claim.LastFollowUpDate = request.LastFollowUpDate;
+        claim.DocumentationComplete = request.DocumentationComplete;
+        claim.StatuteOfLimitationsDate = request.StatuteOfLimitationsDate;
+
+        if (!string.IsNullOrWhiteSpace(request.Status))
+        {
+            claim.Status = request.Status.Trim();
+        }
+
+        claim.RecalculateFinancials();
+        var calculatedValues = CalculateValues(claim);
+        claim.Priority = DeterminePriority(claim, calculatedValues);
+
+        await _medicalClaims.UpdateAsync(claim, cancellationToken);
+
+        var latestRecommendation = await _recommendations.GetLatestForClaimAsync(id, cancellationToken);
+        return MapClaim(claim, calculatedValues, latestRecommendation);
+    }
+
+    /// <summary>
     /// Gets a medical claim by identifier with its latest recommendation, when the claim exists.
     /// </summary>
     public async Task<MedicalClaimResponse?> GetClaimAsync(long id, CancellationToken cancellationToken = default)
@@ -434,9 +483,73 @@ public sealed class ClaimWorkflowService : IClaimWorkflowService
     }
 
     /// <summary>
+    /// Validates the minimum required fields and value ranges for updating a claim.
+    /// </summary>
+    private static void ValidateUpdateRequest(UpdateMedicalClaimRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.ClaimNumber))
+        {
+            throw new ArgumentException("Claim number is required.", nameof(request));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.PatientIdentifier))
+        {
+            throw new ArgumentException("Patient identifier is required.", nameof(request));
+        }
+
+        if (request.HospitalId <= 0)
+        {
+            throw new ArgumentException("Hospital is required.", nameof(request));
+        }
+
+        if (request.InsuranceCompanyId <= 0)
+        {
+            throw new ArgumentException("Insurance company is required.", nameof(request));
+        }
+
+        if (request.DateOfService == default)
+        {
+            throw new ArgumentException("Date of service is required.", nameof(request));
+        }
+
+        if (request.DateClaimSubmitted < request.DateOfService)
+        {
+            throw new ArgumentException("Claim submitted date cannot be before the date of service.", nameof(request));
+        }
+
+        if (request.AmountBilled < 0 || request.AmountPaid < 0 || request.ExpectedPaymentAmount < 0)
+        {
+            throw new ArgumentException("Claim amounts cannot be negative.", nameof(request));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Status) && !MedicalClaimStatuses.IsValid(request.Status.Trim()))
+        {
+            throw new ArgumentException("Claim status is invalid.", nameof(request));
+        }
+    }
+
+    /// <summary>
     /// Verifies claim lookup identifiers point to existing hospital and insurance company records.
     /// </summary>
     private async Task ValidateLookupReferencesAsync(CreateMedicalClaimRequest request, CancellationToken cancellationToken)
+    {
+        var hospital = await _hospitals.GetByIdAsync(request.HospitalId, cancellationToken);
+        if (hospital is null)
+        {
+            throw new ArgumentException("Hospital was not found.", nameof(request));
+        }
+
+        var insuranceCompany = await _insuranceCompanies.GetByIdAsync(request.InsuranceCompanyId, cancellationToken);
+        if (insuranceCompany is null)
+        {
+            throw new ArgumentException("Insurance company was not found.", nameof(request));
+        }
+    }
+
+    /// <summary>
+    /// Verifies updated claim lookup identifiers point to existing hospital and insurance company records.
+    /// </summary>
+    private async Task ValidateLookupReferencesAsync(UpdateMedicalClaimRequest request, CancellationToken cancellationToken)
     {
         var hospital = await _hospitals.GetByIdAsync(request.HospitalId, cancellationToken);
         if (hospital is null)

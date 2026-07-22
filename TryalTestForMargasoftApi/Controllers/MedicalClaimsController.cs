@@ -66,6 +66,30 @@ public sealed class MedicalClaimsController : ControllerBase
     }
 
     /// <summary>
+    /// Updates an existing medical claim and returns the refreshed claim.
+    /// </summary>
+    [HttpPut("{id:long}")]
+    public async Task<ActionResult<MedicalClaimResponse>> UpdateClaim(
+        long id,
+        UpdateMedicalClaimRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var claim = await _claimWorkflow.UpdateClaimAsync(id, request, cancellationToken);
+            return Ok(claim);
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new { error = exception.Message });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    /// <summary>
     /// Generates a new recommendation for an existing claim.
     /// </summary>
     [HttpPost("{id:long}/recommendations")]

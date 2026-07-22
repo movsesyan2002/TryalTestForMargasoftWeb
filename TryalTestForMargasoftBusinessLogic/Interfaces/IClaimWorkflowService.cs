@@ -11,6 +11,11 @@ public interface IClaimWorkflowService
     Task<MedicalClaimResponse> CreateClaimAsync(CreateMedicalClaimRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Updates an existing medical claim and refreshes its calculated values.
+    /// </summary>
+    Task<MedicalClaimResponse> UpdateClaimAsync(long id, UpdateMedicalClaimRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets a medical claim by identifier with its latest recommendation, when the claim exists.
     /// </summary>
     Task<MedicalClaimResponse?> GetClaimAsync(long id, CancellationToken cancellationToken = default);
