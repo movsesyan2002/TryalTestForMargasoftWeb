@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\TryalTestForMargasoft\TryalTestForMargasoft.csproj" />
     <ProjectReference Include="..\TryalTestForMargasoftBusinessLogic\TryalTestForMargasoftBusinessLogic.csproj" />
     <ProjectReference Include="..\TryalTestForMargasoftInfrastrcture\TryalTestForMargasoftInfrastrcture.csproj" />
     <ProjectReference Include="..\TryalTestForMargasoftShared\TryalTestForMargasoftShared.csproj" />
