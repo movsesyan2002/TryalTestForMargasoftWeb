@@ -1,0 +1,548 @@
+@page "/claims/create"
+@using System.Globalization
+@using System.Net
+@using System.Net.Http.Json
+@using TryalTestForMargasoftShared.Lookups
+@using TryalTestForMargasoftShared.MedicalClaims
+@inject HttpClient Http
+
+<PageTitle>Create claim</PageTitle>
+
+<section class="claim-create-page">
+    <nav class="breadcrumb-row" aria-label="Breadcrumb">
+        <a href="claims">Claims</a>
+        <span aria-hidden="true">/</span>
+        <span>Create claim</span>
+    </nav>
+
+    @if (createdClaim is not null)
+    {
+        <div class="success-state" role="status">
+            <div class="success-mark" aria-hidden="true">✓</div>
+            <p class="eyebrow">Claim created</p>
+            <h1>@createdClaim.ClaimNumber is ready for review</h1>
+            <p class="success-copy">
+                The claim was saved and the initial recovery recommendation was generated.
+            </p>
+
+            <dl class="success-details">
+                <div>
+                    <dt>Outstanding balance</dt>
+                    <dd>@FormatMoney(createdClaim.OutstandingBalance)</dd>
+                </div>
+                <div>
+                    <dt>Priority</dt>
+                    <dd>@createdClaim.Priority</dd>
+                </div>
+                <div>
+                    <dt>Recommended action</dt>
+                    <dd>@(createdClaim.LatestRecommendation?.RecommendedAction ?? "Not analyzed")</dd>
+                </div>
+            </dl>
+
+            @if (!string.IsNullOrWhiteSpace(createdClaim.LatestRecommendation?.Explanation))
+            {
+                <div class="recommendation-note">
+                    <strong>Why this action</strong>
+                    <span>@createdClaim.LatestRecommendation.Explanation</span>
+                </div>
+            }
+
+            <div class="success-actions">
+                <a class="btn btn-primary" href="claims">View all claims</a>
+                <button class="btn btn-outline-secondary" type="button" @onclick="CreateAnother">Create another</button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <header class="create-header">
+            <div>
+                <p class="eyebrow">New recovery case</p>
+                <h1>Create medical claim</h1>
+                <p>Enter the claim details used to assess recovery priority and recommend the next action.</p>
+            </div>
+            <a class="close-link" href="claims" aria-label="Close and return to claims" title="Close">×</a>
+        </header>
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="alert alert-danger" role="alert">@errorMessage</div>
+        }
+
+        <form @onsubmit="SubmitAsync" @onsubmit:preventDefault="true">
+            <div class="create-layout">
+                <div class="form-sections">
+                    <section class="form-section" aria-labelledby="claim-details-heading">
+                        <div class="section-heading">
+                            <span class="section-number">1</span>
+                            <div>
+                                <h2 id="claim-details-heading">Claim details</h2>
+                                <p>Identify the claim and the organizations responsible for it.</p>
+                            </div>
+                        </div>
+
+                        <div class="field-grid">
+                            <label class="field">
+                                <span>Claim number <b aria-hidden="true">*</b></span>
+                                <input class="@FieldClass(nameof(model.ClaimNumber))"
+                                       placeholder="e.g. CLM-2026-10482"
+                                       autocomplete="off"
+                                       @bind="model.ClaimNumber" />
+                                @FieldError(nameof(model.ClaimNumber))
+                            </label>
+
+                            <label class="field">
+                                <span>Division</span>
+                                <input class="form-control"
+                                       placeholder="e.g. Emergency services"
+                                       autocomplete="organization-title"
+                                       @bind="model.Division" />
+                            </label>
+
+                            <label class="field">
+                                <span>Hospital <b aria-hidden="true">*</b></span>
+                                <select class="@FieldClass(nameof(model.HospitalId))"
+                                        disabled="@isLoadingLookups"
+                                        @bind="model.HospitalId">
+                                    <option value="0">Select hospital</option>
+                                    @foreach (var hospital in hospitals)
+                                    {
+                                        <option value="@hospital.Id">@hospital.Name</option>
+                                    }
+                                </select>
+                                @FieldError(nameof(model.HospitalId))
+                            </label>
+
+                            <label class="field">
+                                <span>Insurance company <b aria-hidden="true">*</b></span>
+                                <select class="@FieldClass(nameof(model.InsuranceCompanyId))"
+                                        disabled="@isLoadingLookups"
+                                        @bind="model.InsuranceCompanyId">
+                                    <option value="0">Select insurance company</option>
+                                    @foreach (var company in insuranceCompanies)
+                                    {
+                                        <option value="@company.Id">@FormatInsuranceCompany(company)</option>
+                                    }
+                                </select>
+                                @FieldError(nameof(model.InsuranceCompanyId))
+                            </label>
+                        </div>
+                    </section>
+
+                    <section class="form-section" aria-labelledby="patient-heading">
+                        <div class="section-heading">
+                            <span class="section-number">2</span>
+                            <div>
+                                <h2 id="patient-heading">Patient &amp; coverage</h2>
+                                <p>Use internal identifiers only; avoid entering the patient's full name.</p>
+                            </div>
+                        </div>
+
+                        <div class="field-grid">
+                            <label class="field">
+                                <span>Patient identifier <b aria-hidden="true">*</b></span>
+                                <input class="@FieldClass(nameof(model.PatientIdentifier))"
+                                       placeholder="e.g. PT-849231"
+                                       autocomplete="off"
+                                       @bind="model.PatientIdentifier" />
+                                @FieldError(nameof(model.PatientIdentifier))
+                            </label>
+
+                            <label class="field">
+                                <span>Policy number</span>
+                                <input class="form-control"
+                                       placeholder="e.g. POL-5830192"
+                                       autocomplete="off"
+                                       @bind="model.PolicyNumber" />
+                            </label>
+
+                            <label class="field">
+                                <span>Patient date of birth</span>
+                                <input class="form-control"
+                                       type="date"
+                                       max="@TodayValue"
+                                       @bind="model.PatientDateOfBirth" />
+                            </label>
+                        </div>
+                    </section>
+
+                    <section class="form-section" aria-labelledby="service-heading">
+                        <div class="section-heading">
+                            <span class="section-number">3</span>
+                            <div>
+                                <h2 id="service-heading">Service &amp; financials</h2>
+                                <p>Amounts entered here determine the open balance and potential underpayment.</p>
+                            </div>
+                        </div>
+
+                        <div class="field-grid">
+                            <label class="field">
+                                <span>Date of service <b aria-hidden="true">*</b></span>
+                                <input class="@FieldClass(nameof(model.DateOfService))"
+                                       type="date"
+                                       max="@TodayValue"
+                                       @bind="model.DateOfService" />
+                                @FieldError(nameof(model.DateOfService))
+                            </label>
+
+                            <label class="field">
+                                <span>Claim submitted</span>
+                                <input class="@FieldClass(nameof(model.DateClaimSubmitted))"
+                                       type="date"
+                                       min="@DateOfServiceValue"
+                                       max="@TodayValue"
+                                       @bind="model.DateClaimSubmitted" />
+                                @FieldError(nameof(model.DateClaimSubmitted))
+                            </label>
+
+                            <label class="field money-field">
+                                <span>Amount billed <b aria-hidden="true">*</b></span>
+                                <span class="money-input">
+                                    <span aria-hidden="true">$</span>
+                                    <input class="@FieldClass(nameof(model.AmountBilled))"
+                                           type="number"
+                                           min="0"
+                                           step="0.01"
+                                           inputmode="decimal"
+                                           @bind="model.AmountBilled" />
+                                </span>
+                                @FieldError(nameof(model.AmountBilled))
+                            </label>
+
+                            <label class="field money-field">
+                                <span>Expected payment</span>
+                                <span class="money-input">
+                                    <span aria-hidden="true">$</span>
+                                    <input class="@FieldClass(nameof(model.ExpectedPaymentAmount))"
+                                           type="number"
+                                           min="0"
+                                           step="0.01"
+                                           inputmode="decimal"
+                                           @bind="model.ExpectedPaymentAmount" />
+                                </span>
+                                @FieldError(nameof(model.ExpectedPaymentAmount))
+                            </label>
+
+                            <label class="field money-field">
+                                <span>Amount paid</span>
+                                <span class="money-input">
+                                    <span aria-hidden="true">$</span>
+                                    <input class="@FieldClass(nameof(model.AmountPaid))"
+                                           type="number"
+                                           min="0"
+                                           step="0.01"
+                                           inputmode="decimal"
+                                           @bind="model.AmountPaid" />
+                                </span>
+                                @FieldError(nameof(model.AmountPaid))
+                            </label>
+                        </div>
+                    </section>
+
+                    <section class="form-section" aria-labelledby="recovery-heading">
+                        <div class="section-heading">
+                            <span class="section-number">4</span>
+                            <div>
+                                <h2 id="recovery-heading">Denial &amp; recovery</h2>
+                                <p>Add payer response and legal deadline details when they are available.</p>
+                            </div>
+                        </div>
+
+                        <div class="field-grid">
+                            <label class="field">
+                                <span>Denial code</span>
+                                <input class="form-control"
+                                       placeholder="e.g. CO-16"
+                                       autocomplete="off"
+                                       @bind="model.DenialCode" />
+                            </label>
+
+                            <label class="field">
+                                <span>Payer response date</span>
+                                <input class="form-control"
+                                       type="date"
+                                       max="@TodayValue"
+                                       @bind="model.PayerResponseDate" />
+                            </label>
+
+                            <label class="field field-wide">
+                                <span>Denial reason</span>
+                                <textarea class="form-control"
+                                          rows="3"
+                                          placeholder="Summarize the payer's denial or dispute reason"
+                                          @bind="model.DenialReason"></textarea>
+                            </label>
+
+                            <label class="field">
+                                <span>Last follow-up</span>
+                                <input class="form-control"
+                                       type="date"
+                                       max="@TodayValue"
+                                       @bind="model.LastFollowUpDate" />
+                            </label>
+
+                            <label class="field">
+                                <span>Statute of limitations</span>
+                                <input class="form-control"
+                                       type="date"
+                                       @bind="model.StatuteOfLimitationsDate" />
+                            </label>
+
+                            <label class="check-field field-wide">
+                                <input type="checkbox" @bind="model.DocumentationComplete" />
+                                <span>
+                                    <strong>Documentation is complete</strong>
+                                    <small>Medical records, billing statements, and payer correspondence are available.</small>
+                                </span>
+                            </label>
+                        </div>
+                    </section>
+                </div>
+
+                <aside class="claim-summary" aria-label="Claim summary">
+                    <h2>Claim summary</h2>
+                    <dl>
+                        <div>
+                            <dt>Amount billed</dt>
+                            <dd>@FormatMoney(model.AmountBilled)</dd>
+                        </div>
+                        <div>
+                            <dt>Amount paid</dt>
+                            <dd>− @FormatMoney(model.AmountPaid)</dd>
+                        </div>
+                        <div class="summary-total">
+                            <dt>Open balance</dt>
+                            <dd>@FormatMoney(OpenBalance)</dd>
+                        </div>
+                        @if (UnderpaymentAmount is not null)
+                        {
+                            <div>
+                                <dt>Potential underpayment</dt>
+                                <dd>@FormatMoney(UnderpaymentAmount.Value)</dd>
+                            </div>
+                        }
+                    </dl>
+
+                    <div class="summary-status">
+                        <span>Initial status</span>
+                        <strong>New</strong>
+                    </div>
+
+                    <p class="summary-note">
+                        A recovery recommendation and priority will be calculated when the claim is created.
+                    </p>
+
+                    <button class="btn btn-primary submit-button"
+                            type="submit"
+                            disabled="@(isSubmitting || isLoadingLookups)">
+                        @(isSubmitting ? "Creating claim..." : "Create claim")
+                    </button>
+                    <a class="btn btn-link cancel-button" href="claims">Cancel</a>
+                </aside>
+            </div>
+        </form>
+    }
+</section>
+
+@code {
+    private readonly Dictionary<string, string> validationErrors = [];
+    private CreateMedicalClaimRequest model = NewClaim();
+    private IReadOnlyCollection<HospitalResponse> hospitals = [];
+    private IReadOnlyCollection<InsuranceCompanyResponse> insuranceCompanies = [];
+    private MedicalClaimResponse? createdClaim;
+    private string? errorMessage;
+    private bool isLoadingLookups;
+    private bool isSubmitting;
+
+    private static string TodayValue => DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    private string? DateOfServiceValue => model.DateOfService == default
+        ? null
+        : model.DateOfService.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    private decimal OpenBalance => Math.Max(model.AmountBilled - model.AmountPaid, 0);
+    private decimal? UnderpaymentAmount => model.ExpectedPaymentAmount is null
+        ? null
+        : Math.Max(model.ExpectedPaymentAmount.Value - model.AmountPaid, 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLookupsAsync();
+    }
+
+    private async Task LoadLookupsAsync()
+    {
+        isLoadingLookups = true;
+        errorMessage = null;
+
+        try
+        {
+            var hospitalTask = Http.GetFromJsonAsync<IReadOnlyCollection<HospitalResponse>>("api/hospitals");
+            var insuranceTask = Http.GetFromJsonAsync<IReadOnlyCollection<InsuranceCompanyResponse>>("api/insurance-companies");
+
+            await Task.WhenAll(hospitalTask, insuranceTask);
+            hospitals = hospitalTask.Result ?? [];
+            insuranceCompanies = insuranceTask.Result ?? [];
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage = "Hospital and insurance company options could not be loaded. Start the API project and refresh the page.";
+        }
+        finally
+        {
+            isLoadingLookups = false;
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        errorMessage = null;
+        if (!Validate())
+        {
+            errorMessage = "Review the highlighted fields before creating the claim.";
+            return;
+        }
+
+        isSubmitting = true;
+
+        try
+        {
+            using var response = await Http.PostAsJsonAsync("api/medical-claims", model);
+            if (response.IsSuccessStatusCode)
+            {
+                createdClaim = await response.Content.ReadFromJsonAsync<MedicalClaimResponse>();
+                if (createdClaim is null)
+                {
+                    errorMessage = "The claim was created, but its confirmation could not be loaded.";
+                }
+
+                return;
+            }
+
+            var apiError = await response.Content.ReadFromJsonAsync<ApiError>();
+            errorMessage = apiError?.Error ?? (response.StatusCode == HttpStatusCode.BadRequest
+                ? "The claim details were not accepted. Review the form and try again."
+                : "The claim could not be created. Try again.");
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage = "The claim service could not be reached. Start the API project and try again.";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private bool Validate()
+    {
+        validationErrors.Clear();
+
+        AddRequiredText(nameof(model.ClaimNumber), model.ClaimNumber, "Enter a claim number.");
+        AddRequiredText(nameof(model.PatientIdentifier), model.PatientIdentifier, "Enter a patient identifier.");
+
+        if (model.HospitalId <= 0)
+        {
+            validationErrors[nameof(model.HospitalId)] = "Select a hospital.";
+        }
+
+        if (model.InsuranceCompanyId <= 0)
+        {
+            validationErrors[nameof(model.InsuranceCompanyId)] = "Select an insurance company.";
+        }
+
+        if (model.DateOfService == default)
+        {
+            validationErrors[nameof(model.DateOfService)] = "Enter the date of service.";
+        }
+        else if (model.DateOfService > DateOnly.FromDateTime(DateTime.Today))
+        {
+            validationErrors[nameof(model.DateOfService)] = "Date of service cannot be in the future.";
+        }
+
+        if (model.DateClaimSubmitted < model.DateOfService)
+        {
+            validationErrors[nameof(model.DateClaimSubmitted)] = "Submitted date cannot be before the date of service.";
+        }
+
+        AddNonNegative(nameof(model.AmountBilled), model.AmountBilled, "Amount billed cannot be negative.");
+        AddNonNegative(nameof(model.AmountPaid), model.AmountPaid, "Amount paid cannot be negative.");
+        if (model.ExpectedPaymentAmount is not null)
+        {
+            AddNonNegative(nameof(model.ExpectedPaymentAmount), model.ExpectedPaymentAmount.Value, "Expected payment cannot be negative.");
+        }
+
+        return validationErrors.Count == 0;
+    }
+
+    private void AddRequiredText(string field, string? value, string message)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            validationErrors[field] = message;
+        }
+    }
+
+    private void AddNonNegative(string field, decimal value, string message)
+    {
+        if (value < 0)
+        {
+            validationErrors[field] = message;
+        }
+    }
+
+    private string FieldClass(string field)
+    {
+        var baseClass = field is nameof(model.HospitalId) or nameof(model.InsuranceCompanyId)
+            ? "form-select"
+            : "form-control";
+        return validationErrors.ContainsKey(field) ? $"{baseClass} is-invalid" : baseClass;
+    }
+
+    private RenderFragment FieldError(string field) => builder =>
+    {
+        if (validationErrors.TryGetValue(field, out var message))
+        {
+            builder.OpenElement(0, "span");
+            builder.AddAttribute(1, "class", "field-error");
+            builder.AddContent(2, message);
+            builder.CloseElement();
+        }
+    };
+
+    private static string FormatInsuranceCompany(InsuranceCompanyResponse company)
+    {
+        return string.IsNullOrWhiteSpace(company.PayerCode)
+            ? company.Name
+            : $"{company.Name} ({company.PayerCode})";
+    }
+
+    private static string FormatMoney(decimal value)
+    {
+        return value.ToString("C2", CultureInfo.GetCultureInfo("en-US"));
+    }
+
+    private void CreateAnother()
+    {
+        model = NewClaim();
+        createdClaim = null;
+        errorMessage = null;
+        validationErrors.Clear();
+    }
+
+    private static CreateMedicalClaimRequest NewClaim()
+    {
+        return new CreateMedicalClaimRequest
+        {
+            DateOfService = DateOnly.FromDateTime(DateTime.Today),
+            AmountBilled = 0,
+            AmountPaid = 0,
+            DocumentationComplete = false,
+            Status = "New"
+        };
+    }
+
+    private sealed class ApiError
+    {
+        public string? Error { get; set; }
+    }
+}
